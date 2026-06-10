@@ -1,10 +1,11 @@
-"""Model/file download and safe archive extraction.
+"""Model/file download with integrity verification and safe archive extraction.
 
 Seeded from sherox's ``utils.py``. Uses only the standard library
-(``urllib``, ``tarfile``) so it adds no third-party dependency. Progress is
-written to stderr and can be silenced with ``progress=False``.
+(``urllib``, ``tarfile``, ``hashlib``) so it adds no third-party dependency.
+Progress is written to stderr and can be silenced with ``progress=False``.
 """
 
+import hashlib
 import sys
 import tarfile
 import urllib.error
@@ -15,18 +16,58 @@ from typing import Iterator
 from .errors import AudiokitError
 
 
-def download_file(url: str, dest: "Path | str", progress: bool = True) -> None:
+def verify_sha256(path: "Path | str", expected: str) -> bool:
+    """Return ``True`` if the file at *path* hashes to *expected* (hex)."""
+    path = Path(path)
+    if not path.exists():
+        return False
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while True:
+            block = f.read(65536)
+            if not block:
+                break
+            h.update(block)
+    return h.hexdigest() == expected.lower()
+
+
+def sha256_of(path: "Path | str") -> str:
+    """Return the SHA-256 hex digest of the file at *path*."""
+    h = hashlib.sha256()
+    with Path(path).open("rb") as f:
+        while True:
+            block = f.read(65536)
+            if not block:
+                break
+            h.update(block)
+    return h.hexdigest()
+
+
+def download_file(
+    url: str,
+    dest: "Path | str",
+    *,
+    sha256: str = "",
+    progress: bool = True,
+) -> None:
     """Download ``url`` to ``dest``, resuming a partial file when possible.
 
     Supports ``http(s)://`` and ``file://`` URLs. If a partial file exists at
     ``dest``, an HTTP ``Range`` request is attempted; servers that ignore it
     (returning ``200`` instead of ``206``) trigger a clean restart.
 
+    When *sha256* is provided the digest of the file is verified after
+    download; ``AudiokitError`` is raised on mismatch.
+
     Raises ``AudiokitError`` on failure.
     """
     dest = Path(dest)
 
     existing_size = dest.stat().st_size if dest.exists() else 0
+
+    # If the existing file already satisfies the hash, skip download.
+    if sha256 and existing_size and verify_sha256(dest, sha256):
+        return
 
     req = urllib.request.Request(url)
     if existing_size > 0:
@@ -35,12 +76,7 @@ def download_file(url: str, dest: "Path | str", progress: bool = True) -> None:
     try:
         with urllib.request.urlopen(req) as response:  # noqa: S310 - explicit scheme support
             status = getattr(response, "status", None)
-            # Server ignored our Range request (full 200 instead of 206 partial).
-            # Non-HTTP handlers such as file:// also ignore Range and do not
-            # expose a status code, so restart rather than appending a full
-            # response to the partial file.
             if existing_size > 0 and (status is None or status != 206):
-                # Restart: existing_size = 0 below selects "wb", which truncates.
                 existing_size = 0
 
             if "Content-Range" in response.headers:
@@ -64,9 +100,8 @@ def download_file(url: str, dest: "Path | str", progress: bool = True) -> None:
                         sys.stderr.flush()
     except urllib.error.HTTPError as exc:
         if exc.code == 416 and existing_size > 0:
-            # Requested range not satisfiable — discard partial and restart.
             dest.unlink(missing_ok=True)
-            download_file(url, dest, progress=progress)
+            download_file(url, dest, sha256=sha256, progress=progress)
             return
         raise AudiokitError(f"Download failed: {exc}") from exc
     except Exception as exc:  # noqa: BLE001
@@ -74,6 +109,12 @@ def download_file(url: str, dest: "Path | str", progress: bool = True) -> None:
     if progress and total_size > 0:
         sys.stderr.write("\n")
         sys.stderr.flush()
+
+    if sha256 and not verify_sha256(dest, sha256):
+        got = sha256_of(dest)
+        raise AudiokitError(
+            f"SHA-256 mismatch for {dest}: expected {sha256}, got {got}"
+        )
 
 
 def safe_tar_members(tf: tarfile.TarFile, dest_dir: "Path | str") -> Iterator[tarfile.TarInfo]:

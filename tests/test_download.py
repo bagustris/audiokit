@@ -103,3 +103,43 @@ def test_safe_tar_members_filters_hardlink_target_traversal(tmp_path):
         names = [m.name for m in safe_tar_members(tf, tmp_path)]
 
     assert "dir/link" not in names
+
+
+def test_download_sha256_verification_passes(tmp_path, http_server):
+    base_url, served_dir = http_server
+    payload = b"test data for sha256"
+    (served_dir / "blob.bin").write_bytes(payload)
+    import hashlib
+    expected = hashlib.sha256(payload).hexdigest()
+
+    dest = tmp_path / "dl" / "blob.bin"
+    download_file(f"{base_url}/blob.bin", dest, sha256=expected, progress=False)
+    assert dest.read_bytes() == payload
+
+
+def test_download_sha256_mismatch_raises(tmp_path, http_server):
+    base_url, served_dir = http_server
+    payload = b"some content"
+    (served_dir / "bad.bin").write_bytes(payload)
+
+    dest = tmp_path / "dl" / "bad.bin"
+    with pytest.raises(AudiokitError, match="SHA-256 mismatch"):
+        download_file(
+            f"{base_url}/bad.bin", dest, sha256="00" + "0" * 62, progress=False
+        )
+
+
+def test_download_sha256_skips_when_already_matched(tmp_path, http_server):
+    base_url, served_dir = http_server
+    payload = b"already there"
+    (served_dir / "existing.bin").write_bytes(payload)
+    import hashlib
+    expected = hashlib.sha256(payload).hexdigest()
+
+    dest = tmp_path / "dl" / "existing.bin"
+    dest.parent.mkdir()
+    dest.write_bytes(payload)  # pre-existing matching file
+
+    # Should return immediately without downloading again
+    download_file(f"{base_url}/existing.bin", dest, sha256=expected, progress=False)
+    assert dest.read_bytes() == payload

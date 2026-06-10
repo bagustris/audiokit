@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audiokit"
-version = "0.1.0"
-description = "Purpose-neutral audio plumbing: I/O, resampling, energy-VAD, SNR, and model download — shared by coughkit, sherox, and nkululeko."
+version = "0.2.0"
+description = "Purpose-neutral audio plumbing: I/O, resampling, energy-VAD, SNR, model download, integrity verification, feature contracts, segment CSV export, and scaler serialisation — shared by coughkit, sherox, and nkululeko."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 mic = ["sounddevice>=0.4"]
+toml = ["tomli>=2.0; python_version < '3.11'"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
