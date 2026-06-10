@@ -1,12 +1,13 @@
 # audiokit
 
 **Purpose-neutral audio plumbing** — the small, dependency-light building blocks
-(audio I/O, resampling, energy-VAD, SNR, model download) that
+(audio I/O, resampling, energy-VAD, SNR, model download, integrity
+verification, feature contracts, segment CSV export, scaler JSON) that
 [`coughkit`](../coughkit), [`sherox`](../sherox), and [`nkululeko`](../nkululeko)
 each currently re-implement on their own.
 
 This package is the concrete first step from
-[`audio-repos-synergy.md`](../audio-repos-synergy.md) §4(B): extract **only** the
+[`cross_repo_analysis.md`](../cross_repo_analysis.md) §4(B): extract **only** the
 mechanical, task-neutral code into one tested library, so the other repos can
 later depend on it instead of duplicating it. **No other repository has been
 modified** — audiokit stands alone and passes its own test suite first.
@@ -33,7 +34,11 @@ optional `[mic]` extra because it needs a system PortAudio library and only
 ```python
 from audiokit import (
     read_wav, wav_duration, mic_stream, pipe_stream, resample,   # io
-    download_file, safe_tar_members,                              # download
+    download_file, safe_tar_members, sha256_of, verify_sha256,    # download
+    verify_integrity, create_manifest,                            # integrity
+    FeatureContract, read_contract,                               # contracts
+    write_segments_csv, read_segments_csv,                        # segment CSV
+    NumpyStandardScaler, scaler_from_json, scaler_to_json,         # scalers
     energy_vad,                                                   # vad
     SNREstimator, estimate_snr, compute_snr,                      # snr
     render_mic_level, run_cli,                                    # cli
@@ -48,8 +53,13 @@ from audiokit import (
 | | `resample` | Polyphase Kaiser (β=14, ~90 dB) resample; linear fallback | sherox |
 | | `mic_stream` | Callback+queue microphone capture (needs `[mic]`) | sherox |
 | | `pipe_stream` | Raw 16-bit PCM from a stream/stdin → float32 chunks (injectable for tests) | sherox |
-| `audiokit.download` | `download_file` | `http(s)://`/`file://` download with resume + clean restart when a server ignores `Range` | sherox `utils.py` |
+| `audiokit.download` | `download_file` | `http(s)://`/`file://` download with resume + optional SHA-256 verification | sherox `utils.py` + Priority 2 |
+| | `sha256_of` / `verify_sha256` | File digest helpers used by model integrity manifests | Priority 2 |
 | | `safe_tar_members` | Path-traversal-safe tar member filter (`filter="data"` for Py<3.12) | sherox |
+| `audiokit.integrity` | `create_manifest` / `verify_integrity` | Shared manifest format for model/fixture integrity | Priority 2 / §7.5 |
+| `audiokit.contract` | `FeatureContract` / `read_contract` | Machine-readable feature-vector contract (e.g. coughkit 68 features) | Priority 3 / §4.3 |
+| `audiokit.segment` | `write_segments_csv` / `read_segments_csv` / `segments_to_audformat_index` | Audformat-compatible segment CSV bridge for sherox/coughkit → nkululeko | Priority 3 / §5.3 |
+| `audiokit.scaler` | `NumpyStandardScaler` / `scaler_to_json` / `scaler_from_json` | Portable JSON scaler export/load without sklearn at inference | coughkit pattern / §6.5 |
 | `audiokit.vad` | `energy_vad` | Hysteresis-comparator event detector for **any** high-energy events (coughs, claps, impulses); returns sample-index segments + boolean mask | coughkit `segment_cough` |
 | `audiokit.snr` | `SNREstimator` / `estimate_snr` | Percentile log-energy SNR (general; no segmentation needed) | nkululeko `estimate_snr.py` |
 | | `compute_snr` | Mask-based RMS(event)/RMS(background) SNR via `energy_vad` | coughkit `compute_SNR` |
@@ -75,9 +85,28 @@ print(compute_snr(signal, 16000))            # event-vs-background mask method
 ```
 
 ```python
-# Download a model with resume support
+# Download a model with resume support + SHA-256 verification
 from audiokit import download_file
-download_file("https://example.com/model.onnx", "models/model.onnx")
+download_file(
+    "https://example.com/model.onnx",
+    "models/model.onnx",
+    sha256="<expected-sha256-hex>",
+)
+```
+
+```python
+# Write a segment bridge CSV (sherox/coughkit -> nkululeko)
+from audiokit import write_segments_csv
+write_segments_csv("segments.csv", [
+    {"source_file": "meeting.wav", "start": 1.23, "end": 2.34, "segment_file": "seg_0000.wav"}
+])
+```
+
+```python
+# Define and validate a model feature contract
+from audiokit import FeatureContract
+contract = FeatureContract(n_features=3, feature_names=["mfcc0", "mfcc1", "zcr"])
+contract.validate_model_feature_names(["mfcc0", "mfcc1", "zcr"])
 ```
 
 ## Design notes & deliberate divergences from the seed code
@@ -99,7 +128,7 @@ download_file("https://example.com/model.onnx", "models/model.onnx")
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q        # 23 tests, all offline & deterministic
+uv run --with pytest pytest -q       # 78 tests, all offline & deterministic
 ```
 
 `tests/` (all self-contained — no network, no microphone, no external models):
@@ -107,7 +136,12 @@ download_file("https://example.com/model.onnx", "models/model.onnx")
 | File | Covers |
 |------|--------|
 | `test_io.py` | round-trip chunked read, resample-on-read, duration, mono enforcement, `resample`, `pipe_stream` EOF + padding |
-| `test_download.py` | fresh HTTP download (threaded `http.server`), restart when server ignores `Range`, bad-URL error, tar traversal filtering |
+| `test_download.py` | fresh HTTP download, restart when server ignores `Range`, bad-URL error, tar traversal filtering, SHA-256 verification |
+| `test_integrity.py` | manifest creation and integrity verification |
+| `test_contract.py` | feature-contract read/write and model-feature-name validation |
+| `test_segment.py` | segment CSV read/write and audformat-style index conversion |
+| `test_scaler.py` | `NumpyStandardScaler` and scaler JSON export/load |
+| `test_testing.py` | shared synthetic audio fixture factories |
 | `test_vad.py` | single-burst detection, empty signal, pure silence, segment/mask consistency |
 | `test_snr.py` | high-SNR positive, silence→0, short-signal guard, event-over-background, no-event→0 |
 | `test_package.py` | version string and complete public-API export |
@@ -118,23 +152,18 @@ unit-tested; `download_file` is exercised against a local threaded HTTP server.
 ## Status & next steps
 
 - [x] Standalone, installable `audiokit` package (src-layout, `uv` + `.venv`).
-- [x] Five modules (`io`, `download`, `vad`, `snr`, `cli`) + `errors`.
-- [x] 23 passing tests; deterministic and offline.
-- [x] **coughkit** depends on audiokit — `segment_cough`/`compute_SNR` delegate
-  to `energy_vad`/`compute_snr` (59 tests pass).
-- [x] **sherox** depends on audiokit — `audio._resample` → `resample`,
-  `utils.safe_tar_members` → `safe_tar_members` (810 tests pass). `download_file`
-  kept local: its tests pin `sherox.utils`-local `urllib` patching and
-  `SherpaError`, so delegation would have churned ~12 tests.
-- [x] **diastt** depends on audiokit — `_load_audio` resamples via `resample`,
-  replacing the optional `resampy` dependency (329 tests pass; the obsolete
-  resampy-fallback test was removed).
-- [x] **nkululeko** depends on audiokit — `autopredict.estimate_snr.SNREstimator`
-  subclasses `audiokit.SNREstimator` (reused by `feats_snr`/`ap_snr`), and a new
-  `segmenting/seg_energy.py` (`[SEGMENT] method = energy`) wraps `energy_vad`
-  (851 pass / 3 skip; the one collection error is a pre-existing missing optional
-  dep, `diffsptk`, unrelated to audiokit).
+- [x] Core modules (`io`, `download`, `vad`, `snr`, `cli`) + `errors`.
+- [x] Priority 2 shared infrastructure: SHA-256 download verification, integrity manifests, shared synthetic-audio test factories.
+- [x] Priority 3 bridge infrastructure: feature contracts, audformat-compatible segment CSV, scaler JSON serialisation/runtime loader.
+- [x] 78 passing tests; deterministic and offline.
+- [ ] Integrate **coughkit** with audiokit: delegate `segment_cough` / `compute_SNR`
+  to `energy_vad` / `compute_snr`, then add feature-contract-aware model loading.
+- [ ] Integrate **sherox** with audiokit: delegate `audio._resample` and
+  `utils.safe_tar_members`, then add model integrity checks and segment CSV export.
+- [ ] Integrate **nkululeko** with audiokit: reuse `SNREstimator`, add external
+  segment CSV ingestion, and use scaler JSON helpers for portable bundles.
 
-Each consumer declares `audiokit` in `[project.dependencies]` and resolves it
-locally via `[tool.uv.sources] audiokit = { path = "../audiokit", editable = true }`.
-See [`audio-repos-synergy.md`](../audio-repos-synergy.md) §5 for the full roadmap.
+Consumers should declare `audiokit` in `[project.dependencies]` and, for local
+workspace development, resolve it via `[tool.uv.sources] audiokit = { path =
+"../audiokit", editable = true }`. See [`cross_repo_analysis.md`](../cross_repo_analysis.md)
+§9 for the full roadmap.

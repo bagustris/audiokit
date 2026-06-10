@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-10
+
+### Added
+- Priority 2 infrastructure: SHA-256 verification for downloads, `sha256_of`,
+  `verify_sha256`, `create_manifest`, and `verify_integrity`.
+- Priority 2 shared synthetic audio factories in `audiokit.testing`.
+- Priority 3 feature contracts via `FeatureContract` and `read_contract`.
+- Priority 3 audformat-compatible segment CSV helpers: `write_segments_csv`,
+  `read_segments_csv`, and `segments_to_audformat_index`.
+- Priority 3 portable scaler helpers: `NumpyStandardScaler`, `scaler_to_json`,
+  and `scaler_from_json`.
+- Additional tests covering integrity manifests, feature contracts, segment CSV,
+  scaler JSON, shared fixtures, SHA-256 downloads, TOML round-trips, malformed
+  manifests, malformed scaler JSON, and malformed segment times.
+- Reviewer-feedback hardening: feature-count validation, TOML table ordering,
+  parent-directory creation for segment CSV output, defensive audformat index
+  conversion, manifest parse errors wrapped as `AudiokitError`, and StandardScaler
+  `with_mean`/`with_std` preservation.
+
+### Changed
+- `download_file` now accepts optional `sha256=` and skips re-download when an
+  existing file already matches the expected digest.
+- Public version bumped to `0.2.0`.
+
 ## [0.1.0] - 2026-06-10
 
 ### Added
