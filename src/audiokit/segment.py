@@ -10,9 +10,8 @@ The CSV schema is a lightweight subset of audformat's segmented_index:
 """
 
 import csv
-import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 from .errors import AudiokitError
 
@@ -28,32 +27,32 @@ def write_segments_csv(
 ) -> None:
     """Write a segment CSV at *path*.
 
-    Each dict in *segments* must contain at least these keys::
-
-        {"source_file": "/path/to/audio.wav",
-         "start": 1.234,       # start time in seconds
-         "end": 2.567,         # end time in seconds
-         "segment_file": "seg_0000.wav",
-         "prob": 0.995,        # optional extra column
-         "vad_model": "silero" # optional extra column
-        }
-
-    Args:
-        path: Output CSV path.
-        segments: List of segment dicts.
-        extra_columns: Additional column names beyond the required four.
-            If not given, all keys present in the first segment are used.
+    Each dict in *segments* must contain at least: source_file, start, end,
+    segment_file. Extra keys become extra CSV columns.
     """
     path = Path(path)
-    if not segments:
-        # Write header only
-        cols = list(REQUIRED_COLUMNS) + (extra_columns or [])
-        with path.open("w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(cols)
-        return
+    fieldnames = _fieldnames(segments, extra_columns)
+    _validate_required_columns(segments)
+    _write_rows(path, segments, fieldnames)
 
-    # Determine columns from the first segment if not specified
+
+def _fieldnames(
+    segments: List[Dict[str, Union[str, float]]],
+    extra_columns: Optional[List[str]],
+) -> List[str]:
+    fieldnames = list(REQUIRED_COLUMNS)
+    if extra_columns:
+        return fieldnames + extra_columns
+    for seg in segments:
+        for key in seg:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    return fieldnames
+
+
+def _validate_required_columns(segments: List[Dict[str, Union[str, float]]]) -> None:
+    if not segments:
+        return
     first = segments[0]
     for col in REQUIRED_COLUMNS:
         if col not in first:
@@ -62,30 +61,27 @@ def write_segments_csv(
                 f"Got keys: {list(first.keys())}"
             )
 
-    fieldnames = list(REQUIRED_COLUMNS)
-    if extra_columns:
-        fieldnames.extend(extra_columns)
-    else:
-        # Union all keys across segments, preserving first-seen order.
-        for seg in segments:
-            for key in seg:
-                if key not in fieldnames:
-                    fieldnames.append(key)
 
+def _write_rows(
+    path: Path,
+    segments: List[Dict[str, Union[str, float]]],
+    fieldnames: List[str],
+) -> None:
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for seg in segments:
-            row = {}
-            for col in fieldnames:
-                val = seg.get(col, "")
-                # Format floats with reasonable precision
-                if isinstance(val, float):
-                    row[col] = f"{val:.6f}"
-                else:
-                    row[col] = str(val)
-            writer.writerow(row)
+            writer.writerow(_format_row(seg, fieldnames))
 
+
+def _format_row(
+    seg: Dict[str, Union[str, float]], fieldnames: List[str]
+) -> Dict[str, str]:
+    row: Dict[str, str] = {}
+    for col in fieldnames:
+        val = seg.get(col, "")
+        row[col] = f"{val:.6f}" if isinstance(val, float) else str(val)
+    return row
 
 def read_segments_csv(path: "Path | str") -> List[Dict[str, Union[str, float]]]:
     """Read a segment CSV written by ``write_segments_csv``.

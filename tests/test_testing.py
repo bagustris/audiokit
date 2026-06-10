@@ -30,7 +30,7 @@ def test_make_sine_amplitude():
 def test_make_silence():
     sig = make_silence(2.0, 8000)
     assert len(sig) == 16000
-    assert np.all(sig == 0.0)
+    np.testing.assert_array_equal(sig, np.zeros_like(sig))
 
 
 def test_make_noise():

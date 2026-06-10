@@ -20,14 +20,14 @@ class TestNumpyStandardScaler:
         scaler = NumpyStandardScaler(mean=[1.0, 2.0], scale=[2.0, 3.0], n_features=2)
         x = np.array([[3.0, 8.0]])
         result = scaler.transform(x)
-        expected = np.array([[1.0, 2.0]])  # (3-1)/2=1, (8-2)/3=2
+        expected = np.array([[1.0, 2.0]])
         np.testing.assert_array_almost_equal(result, expected)
 
     def test_transform_without_mean(self):
         scaler = NumpyStandardScaler(mean=[1.0], scale=[2.0], with_mean=False, n_features=1)
         x = np.array([[3.0]])
         result = scaler.transform(x)
-        assert result[0, 0] == 1.5  # 3.0 / 2.0
+        assert result[0, 0] == pytest.approx(1.5)
 
     def test_transform_raises_on_ndim_mismatch(self):
         scaler = NumpyStandardScaler(mean=[0.0], scale=[1.0])

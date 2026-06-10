@@ -82,9 +82,10 @@ class TestFeatureContract:
             "producing_tool_version": "1.0",
             "extra_field": "should be ignored",
         })
-        path = "/tmp/_test_contract_extra.json"
-        with open(path, "w") as f:
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             f.write(raw)
+            path = f.name
         try:
             c = read_contract(path)
             assert c.n_features == 2

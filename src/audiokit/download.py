@@ -62,60 +62,93 @@ def download_file(
     Raises ``AudiokitError`` on failure.
     """
     dest = Path(dest)
-
     existing_size = dest.stat().st_size if dest.exists() else 0
-
-    # If the existing file already satisfies the hash, skip download.
-    if sha256 and existing_size and verify_sha256(dest, sha256):
+    if _existing_file_is_valid(dest, existing_size, sha256):
         return
 
-    req = urllib.request.Request(url)
-    if existing_size > 0:
-        req.add_header("Range", f"bytes={existing_size}-")
-
     try:
-        with urllib.request.urlopen(req) as response:  # noqa: S310 - explicit scheme support
-            status = getattr(response, "status", None)
-            if existing_size > 0 and (status is None or status != 206):
-                existing_size = 0
-
-            if "Content-Range" in response.headers:
-                total_size = int(response.headers["Content-Range"].split("/")[-1])
-            else:
-                total_size = int(response.headers.get("Content-Length", 0))
-
-            mode = "ab" if existing_size > 0 else "wb"
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            with dest.open(mode) as f:
-                downloaded = existing_size
-                while True:
-                    chunk = response.read(8192)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if progress and total_size > 0:
-                        pct = min(100, downloaded * 100 // total_size)
-                        sys.stderr.write(f"\r  {pct}%")
-                        sys.stderr.flush()
+        existing_size = _download_response(url, dest, existing_size, progress)
     except urllib.error.HTTPError as exc:
         if exc.code == 416 and existing_size > 0:
-            dest.unlink(missing_ok=True)
-            download_file(url, dest, sha256=sha256, progress=progress)
+            _restart_download(url, dest, sha256, progress)
             return
         raise AudiokitError(f"Download failed: {exc}") from exc
     except Exception as exc:  # noqa: BLE001
         raise AudiokitError(f"Download failed: {exc}") from exc
+
+    _raise_if_hash_mismatch(dest, sha256)
+
+
+def _existing_file_is_valid(dest: Path, existing_size: int, sha256: str) -> bool:
+    return bool(sha256 and existing_size and verify_sha256(dest, sha256))
+
+
+def _download_response(url: str, dest: Path, existing_size: int, progress: bool) -> int:
+    req = urllib.request.Request(url)
+    if existing_size > 0:
+        req.add_header("Range", f"bytes={existing_size}-")
+
+    with urllib.request.urlopen(req) as response:  # noqa: S310 - explicit scheme support
+        existing_size = _normalise_existing_size(response, existing_size)
+        total_size = _total_size(response)
+        _write_response(response, dest, existing_size, total_size, progress)
+        _finish_progress(progress, total_size)
+    return existing_size
+
+
+def _normalise_existing_size(response, existing_size: int) -> int:  # noqa: ANN001
+    status = getattr(response, "status", None)
+    if existing_size > 0 and (status is None or status != 206):
+        return 0
+    return existing_size
+
+
+def _total_size(response) -> int:  # noqa: ANN001
+    if "Content-Range" in response.headers:
+        return int(response.headers["Content-Range"].split("/")[-1])
+    return int(response.headers.get("Content-Length", 0))
+
+
+def _write_response(response, dest: Path, existing_size: int, total_size: int, progress: bool) -> None:  # noqa: ANN001
+    mode = "ab" if existing_size > 0 else "wb"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open(mode) as f:
+        downloaded = existing_size
+        while True:
+            chunk = response.read(8192)
+            if not chunk:
+                break
+            f.write(chunk)
+            downloaded += len(chunk)
+            _write_progress(downloaded, total_size, progress)
+
+
+def _write_progress(downloaded: int, total_size: int, progress: bool) -> None:
+    if not progress or total_size <= 0:
+        return
+    pct = min(100, downloaded * 100 // total_size)
+    sys.stderr.write(f"\r  {pct}%")
+    sys.stderr.flush()
+
+
+def _finish_progress(progress: bool, total_size: int) -> None:
     if progress and total_size > 0:
         sys.stderr.write("\n")
         sys.stderr.flush()
 
-    if sha256 and not verify_sha256(dest, sha256):
-        got = sha256_of(dest)
-        raise AudiokitError(
-            f"SHA-256 mismatch for {dest}: expected {sha256}, got {got}"
-        )
 
+def _restart_download(url: str, dest: Path, sha256: str, progress: bool) -> None:
+    dest.unlink(missing_ok=True)
+    download_file(url, dest, sha256=sha256, progress=progress)
+
+
+def _raise_if_hash_mismatch(dest: Path, sha256: str) -> None:
+    if not sha256 or verify_sha256(dest, sha256):
+        return
+    got = sha256_of(dest)
+    raise AudiokitError(
+        f"SHA-256 mismatch for {dest}: expected {sha256}, got {got}"
+    )
 
 def safe_tar_members(tf: tarfile.TarFile, dest_dir: "Path | str") -> Iterator[tarfile.TarInfo]:
     """Yield only members safe to extract into ``dest_dir``.
