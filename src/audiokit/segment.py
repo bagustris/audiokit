@@ -67,6 +67,7 @@ def _write_rows(
     segments: List[Dict[str, Union[str, float]]],
     fieldnames: List[str],
 ) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -127,10 +128,17 @@ def segments_to_audformat_index(
     starts: List[float] = []
     ends: List[float] = []
     for seg in segments:
-        files.append(str(seg.get("source_file", "")))
-        starts.append(float(seg.get("start", 0.0)))
-        ends.append(float(seg.get("end", 0.0)))
+        files.append(str(seg.get("source_file") or ""))
+        starts.append(_safe_float(seg.get("start")))
+        ends.append(_safe_float(seg.get("end")))
     return {"file": files, "start": starts, "end": ends}
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 __all__ = [

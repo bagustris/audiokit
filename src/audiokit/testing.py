@@ -5,10 +5,11 @@ can import from here instead of redefining ``_sine()``, ``_silence()``, etc.
 """
 
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Tuple
 
 import numpy as np
-import soundfile as sf
+
+from .errors import AudiokitError
 
 
 def make_sine(
@@ -80,6 +81,13 @@ def write_mono_wav(path: "Path | str", signal: np.ndarray, sample_rate: int) -> 
     """Write a mono WAV file and return its path as a string."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import soundfile as sf  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - soundfile is a core dep
+        raise AudiokitError(
+            "soundfile is required for write_mono_wav(). "
+            "Install it with: pip install soundfile"
+        ) from exc
     sf.write(str(path), signal, sample_rate, subtype="FLOAT")
     return str(path)
 

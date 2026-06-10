@@ -18,23 +18,27 @@ from .errors import AudiokitError
 
 def verify_sha256(path: "Path | str", expected: str) -> bool:
     """Return ``True`` if the file at *path* hashes to *expected* (hex)."""
-    path = Path(path)
-    if not path.exists():
-        return False
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        while True:
-            block = f.read(65536)
-            if not block:
-                break
-            h.update(block)
-    return h.hexdigest() == expected.lower()
+    ok, _ = _sha256_check(path, expected)
+    return ok
 
 
 def sha256_of(path: "Path | str") -> str:
     """Return the SHA-256 hex digest of the file at *path*."""
+    return _sha256_digest(Path(path))
+
+
+def _sha256_check(path: "Path | str", expected: str) -> tuple[bool, str]:
+    """Return ``(matches_expected, computed_digest)`` for *path*."""
+    path = Path(path)
+    if not path.exists():
+        return False, ""
+    digest = _sha256_digest(path)
+    return digest == expected.lower(), digest
+
+
+def _sha256_digest(path: Path) -> str:
     h = hashlib.sha256()
-    with Path(path).open("rb") as f:
+    with path.open("rb") as f:
         while True:
             block = f.read(65536)
             if not block:
@@ -143,9 +147,11 @@ def _restart_download(url: str, dest: Path, sha256: str, progress: bool) -> None
 
 
 def _raise_if_hash_mismatch(dest: Path, sha256: str) -> None:
-    if not sha256 or verify_sha256(dest, sha256):
+    if not sha256:
         return
-    got = sha256_of(dest)
+    ok, got = _sha256_check(dest, sha256)
+    if ok:
+        return
     raise AudiokitError(
         f"SHA-256 mismatch for {dest}: expected {sha256}, got {got}"
     )

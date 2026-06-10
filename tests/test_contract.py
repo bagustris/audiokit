@@ -17,7 +17,7 @@ class TestFeatureContract:
 
     def test_resolve_names_from_groups(self):
         c = FeatureContract(
-            n_features=68,
+            n_features=29,
             groups={"EEPD": 19, "ZCR": 1, "RMSP": 1, "PSD": 8},
         )
         names = c.resolve_names()
@@ -71,7 +71,7 @@ class TestFeatureContract:
         assert loaded.n_features == 3
         assert loaded.feature_names == ["a", "b", "c"]
 
-    def test_roundtrip_with_extra_keys(self):
+    def test_roundtrip_with_extra_keys(self, tmp_path):
         """Extra keys in the JSON should be ignored, not crash."""
         raw = json.dumps({
             "version": "0.1.0",
@@ -82,13 +82,34 @@ class TestFeatureContract:
             "producing_tool_version": "1.0",
             "extra_field": "should be ignored",
         })
-        import tempfile
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-            f.write(raw)
-            path = f.name
-        try:
-            c = read_contract(path)
-            assert c.n_features == 2
-        finally:
-            import os
-            os.unlink(path)
+        path = tmp_path / "_test_contract_extra.json"
+        path.write_text(raw)
+        c = read_contract(path)
+        assert c.n_features == 2
+
+    def test_group_count_mismatch_raises(self):
+        c = FeatureContract(n_features=3, groups={"mfcc": 2})
+        with pytest.raises(AudiokitError, match="count mismatch"):
+            c.resolve_names()
+
+    def test_feature_name_count_mismatch_raises(self):
+        c = FeatureContract(n_features=3, feature_names=["f0", "f1"])
+        with pytest.raises(AudiokitError, match="count mismatch"):
+            c.resolve_names()
+
+    def test_toml_roundtrip(self, tmp_path):
+        c = FeatureContract(
+            version="0.2.0",
+            n_features=3,
+            groups={"mfcc": 2, "zcr": 1},
+            producing_tool="test",
+            producing_tool_version="1.0",
+        )
+        path = tmp_path / "contract.toml"
+        c.to_toml(path)
+        loaded = read_contract(path)
+        assert loaded.version == "0.2.0"
+        assert loaded.n_features == 3
+        assert loaded.groups == {"mfcc": 2, "zcr": 1}
+        assert loaded.producing_tool == "test"
+        assert loaded.resolve_names() == ["mfcc0", "mfcc1", "zcr0"]

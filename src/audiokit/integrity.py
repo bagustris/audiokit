@@ -9,9 +9,9 @@ Uses standard library only (``json``, ``hashlib``).
 
 import json
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
-from .download import sha256_of, verify_sha256
+from .download import _sha256_check, sha256_of
 from .errors import AudiokitError
 
 # ── Manifest schema ──────────────────────────────────────────────────────────
@@ -89,9 +89,7 @@ def verify_integrity(
     """
     manifest_path = Path(manifest_path)
     root = Path(root_dir)
-
-    with manifest_path.open() as f:
-        manifest = json.load(f)
+    manifest = _load_manifest(manifest_path)
 
     errors: list[str] = []
     for rel_path, info in manifest.get("files", {}).items():
@@ -103,8 +101,8 @@ def verify_integrity(
             continue
 
         expected = info.get("sha256", "")
-        if expected and not verify_sha256(full_path, expected):
-            got = sha256_of(full_path)
+        ok, got = _sha256_check(full_path, expected) if expected else (True, "")
+        if not ok:
             errors.append(
                 f"SHA-256 MISMATCH: {rel_path} "
                 f"(expected {expected[:16]}..., got {got[:16]}...)"
@@ -119,6 +117,18 @@ def verify_integrity(
             )
         return False
     return True
+
+
+def _load_manifest(manifest_path: Path) -> dict:
+    if not manifest_path.exists():
+        raise AudiokitError(f"Manifest file not found: {manifest_path}")
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise AudiokitError(f"Failed to parse manifest JSON: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise AudiokitError("Invalid manifest format: expected a JSON object.")
+    return manifest
 
 
 def _guess_format(path: Path) -> str:

@@ -55,16 +55,26 @@ class FeatureContract:
         Otherwise generates prefix0, prefix1, ...
         """
         if self.feature_names:
+            self._validate_feature_count(len(self.feature_names))
             return self.feature_names
         names: List[str] = []
         if self.groups:
+            group_total = sum(int(count) for count in self.groups.values())
+            self._validate_feature_count(group_total)
             for group, count in self.groups.items():
-                for i in range(count):
+                for i in range(int(count)):
                     names.append(f"{group}{i}")
         else:
             names = [f"{prefix}{i}" for i in range(self.n_features)]
         self.feature_names = names
         return names
+
+    def _validate_feature_count(self, actual: int) -> None:
+        if self.n_features and actual != self.n_features:
+            raise AudiokitError(
+                f"Feature contract count mismatch: n_features={self.n_features} "
+                f"but resolved feature count is {actual}."
+            )
 
     def validate_model_feature_names(self, model_names: List[str]) -> bool:
         """Check that model_names matches the contract.
@@ -111,12 +121,7 @@ class FeatureContract:
 
 
     def to_toml(self, path: "Path | str") -> None:
-        """Serialise the contract as TOML (requires tomli/tomllib)."""
-        if _toml is None:
-            raise AudiokitError(
-                "TOML serialisation requires 'tomli' on Python < 3.11. "
-                "Install it with: pip install tomli"
-            )
+        """Serialise the contract as TOML."""
         _write_toml(self.to_dict(), Path(path))
 
 
@@ -140,20 +145,23 @@ def read_contract(path: "Path | str") -> FeatureContract:
 
 
 def _write_toml(data: dict, path: Path) -> None:
-    """Write a flat TOML file from a dict."""
+    """Write a flat TOML file, with root values before table headers."""
     lines: List[str] = []
+    for key, value in data.items():
+        if not isinstance(value, dict):
+            lines.append(_toml_value_line(key, value))
     for key, value in data.items():
         if isinstance(value, dict):
             lines.append(f"\n[{key}]")
             for k, v in value.items():
-                lines.append(f'{k} = {json.dumps(v)}')
-        elif isinstance(value, list):
-            lines.append(f'{key} = {json.dumps(value)}')
-        elif isinstance(value, bool):
-            lines.append(f'{key} = {"true" if value else "false"}')
-        else:
-            lines.append(f'{key} = {json.dumps(value)}')
+                lines.append(_toml_value_line(k, v))
     path.write_text("\n".join(lines) + "\n")
+
+
+def _toml_value_line(key: str, value: object) -> str:
+    if isinstance(value, bool):
+        return f'{key} = {"true" if value else "false"}'
+    return f'{key} = {json.dumps(value)}'
 
 
 __all__ = [

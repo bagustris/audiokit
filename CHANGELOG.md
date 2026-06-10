@@ -19,7 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Priority 3 portable scaler helpers: `NumpyStandardScaler`, `scaler_to_json`,
   and `scaler_from_json`.
 - Additional tests covering integrity manifests, feature contracts, segment CSV,
-  scaler JSON, shared fixtures, and SHA-256 downloads.
+  scaler JSON, shared fixtures, SHA-256 downloads, TOML round-trips, malformed
+  manifests, malformed scaler JSON, and malformed segment times.
+- Reviewer-feedback hardening: feature-count validation, TOML table ordering,
+  parent-directory creation for segment CSV output, defensive audformat index
+  conversion, manifest parse errors wrapped as `AudiokitError`, and StandardScaler
+  `with_mean`/`with_std` preservation.
 
 ### Changed
 - `download_file` now accepts optional `sha256=` and skips re-download when an

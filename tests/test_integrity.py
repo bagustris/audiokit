@@ -75,3 +75,22 @@ def test_verify_integrity_missing_file_raises(tmp_path):
         }, mf)
     with pytest.raises(AudiokitError, match="MISSING"):
         verify_integrity(manifest_path, tmp_path, strict=True)
+
+
+def test_verify_integrity_missing_manifest_raises(tmp_path):
+    with pytest.raises(AudiokitError, match="Manifest file not found"):
+        verify_integrity(tmp_path / "missing.json", tmp_path)
+
+
+def test_verify_integrity_invalid_json_raises(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text("not json")
+    with pytest.raises(AudiokitError, match="Failed to parse"):
+        verify_integrity(manifest_path, tmp_path)
+
+
+def test_verify_integrity_non_object_manifest_raises(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text("[]")
+    with pytest.raises(AudiokitError, match="Invalid manifest"):
+        verify_integrity(manifest_path, tmp_path)

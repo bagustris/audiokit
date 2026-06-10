@@ -67,3 +67,18 @@ def test_segments_to_audformat_index():
     assert idx["file"] == ["/a.wav", "/a.wav"]
     assert idx["start"] == [1.0, 3.0]
     assert idx["end"] == [2.0, 4.0]
+
+
+def test_write_segments_csv_creates_parent_dirs(tmp_path):
+    path = tmp_path / "nested" / "segments.csv"
+    write_segments_csv(path, [
+        {"source_file": "a.wav", "start": 0.0, "end": 1.0, "segment_file": "seg.wav"}
+    ])
+    assert path.exists()
+
+
+def test_segments_to_audformat_index_handles_malformed_times():
+    idx = segments_to_audformat_index([
+        {"source_file": None, "start": "N/A", "end": None},
+    ])
+    assert idx == {"file": [""], "start": [0.0], "end": [0.0]}

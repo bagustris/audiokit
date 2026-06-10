@@ -47,12 +47,16 @@ def test_scaler_to_json_and_back(tmp_path):
         scale_ = [0.5, 1.5]
         var_ = [0.25, 2.25]
         n_features_in_ = 2
+        with_mean = False
+        with_std = True
 
     p = tmp_path / "scaler.json"
     scaler_to_json(FakeScaler(), p)
     loaded = scaler_from_json(p)
     np.testing.assert_array_almost_equal(loaded.mean_, [1.0, 2.0])
     np.testing.assert_array_almost_equal(loaded.scale_, [0.5, 1.5])
+    assert loaded.with_mean is False
+    assert loaded.with_std is True
 
 
 def test_scaler_from_json_unsupported_type_raises(tmp_path):
@@ -68,3 +72,24 @@ def test_scaler_to_json_unknown_type_raises():
         pass
     with pytest.raises(AudiokitError, match="Unknown scaler"):
         scaler_to_json(WeirdScaler(), "/dev/null")
+
+
+def test_scaler_from_json_missing_mean_or_scale_raises(tmp_path):
+    p = tmp_path / "missing.json"
+    p.write_text(json.dumps({"type": "standard", "mean_": [1.0, 2.0]}))
+    with pytest.raises(AudiokitError, match="mean_.*scale_"):
+        scaler_from_json(p)
+
+
+def test_scaler_from_json_length_mismatch_raises(tmp_path):
+    p = tmp_path / "mismatch.json"
+    p.write_text(json.dumps({"type": "standard", "mean_": [1.0, 2.0], "scale_": [1.0]}))
+    with pytest.raises(AudiokitError, match="same length"):
+        scaler_from_json(p)
+
+
+def test_scaler_from_json_n_features_mismatch_raises(tmp_path):
+    p = tmp_path / "n_features.json"
+    p.write_text(json.dumps({"type": "standard", "mean_": [1.0], "scale_": [1.0], "n_features": 2}))
+    with pytest.raises(AudiokitError, match="n_features"):
+        scaler_from_json(p)

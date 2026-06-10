@@ -128,7 +128,7 @@ contract.validate_model_feature_names(["mfcc0", "mfcc1", "zcr"])
 ## Tests
 
 ```bash
-uv run --with pytest pytest -q       # 67 tests, all offline & deterministic
+uv run --with pytest pytest -q       # 78 tests, all offline & deterministic
 ```
 
 `tests/` (all self-contained — no network, no microphone, no external models):
@@ -155,7 +155,7 @@ unit-tested; `download_file` is exercised against a local threaded HTTP server.
 - [x] Core modules (`io`, `download`, `vad`, `snr`, `cli`) + `errors`.
 - [x] Priority 2 shared infrastructure: SHA-256 download verification, integrity manifests, shared synthetic-audio test factories.
 - [x] Priority 3 bridge infrastructure: feature contracts, audformat-compatible segment CSV, scaler JSON serialisation/runtime loader.
-- [x] 67 passing tests; deterministic and offline.
+- [x] 78 passing tests; deterministic and offline.
 - [ ] Integrate **coughkit** with audiokit: delegate `segment_cough` / `compute_SNR`
   to `energy_vad` / `compute_snr`, then add feature-contract-aware model loading.
 - [ ] Integrate **sherox** with audiokit: delegate `audio._resample` and
